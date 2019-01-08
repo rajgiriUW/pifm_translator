@@ -5,21 +5,19 @@ from pyUSID.io.translator import Translator
 from pyUSID.io import write_utils
 from pyUSID import USIDataset
 
-sys.path.append('./../../../../../hyperspectral_pifm')
-path='./../../../../../hyperspectral_pifm/Film15_0010.txt'
-
-class HyperspectralTranslator(Translator):
+class PiFMTranslator(Translator):
     """Writes images, spectrograms, point spectra and associated ancillary data sets to h5 file."""
     def __init__(self, path=None, *args, **kwargs):
         self.path = path
         super(HyperspectralTranslator, self).__init__(*args, **kwargs)
 
-    def get_path(self, path=path):
+    def get_path(self):
+        """writes full path, directory, and file name as attributes to class"""
         # get paths/get params dictionary, img/spectrogram/spectrum descriptions
-        full_path = os.path.realpath(path)
+        full_path = os.path.realpath(self.path)
         directory = os.path.dirname(full_path)
         # file name
-        basename = os.path.basename(path)
+        basename = os.path.basename(self.path)
         self.full_path = full_path
         self.directory = directory
         self.basename = basename
@@ -27,6 +25,7 @@ class HyperspectralTranslator(Translator):
     #these dictionary parameters will be written to hdf5 file under measurement attributes
     ## make into function
     def read_anfatec_params(self):
+        """reads the scan parameters and writes them to a dictionary"""
         params_dictionary = {}
         params = True
         with open(self.path, 'r', encoding="ISO-8859-1") as f:
@@ -42,8 +41,10 @@ class HyperspectralTranslator(Translator):
         self.x_len, self.y_len = int(params_dictionary['xPixel']), int(params_dictionary['yPixel'])
 
     def read_file_desc(self):
-        img_desc = {}
+        """reads spectrogram, image, and spectra file descriptions and stores all to dictionary where
+        the key:value pairs are filename:[all descriptors]"""
         spectrogram_desc = {}
+        img_desc = {}
         spectrum_desc = {}
         with open(path,'r', encoding="ISO-8859-1") as f:
             ## can be made more concise...by incorporating conditons with loop control
@@ -99,6 +100,7 @@ class HyperspectralTranslator(Translator):
         self.spectrogram_spec_vals = spectrogram_spec_vals
 
     def read_imgs(self):
+        """reads images and saves to dictionary"""
         imgs = {}
         for file_name, descriptors in self.img_desc.items():
             img_i = np.fromfile(os.path.join(self.directory, file_name), dtype='i4')
@@ -109,6 +111,7 @@ class HyperspectralTranslator(Translator):
         self.imgs = imgs
 
     def read_spectra(self):
+        """reads all point spectra and saves to dictionary"""
         spectra = {}
         spectra_spec_vals = {}
         spectra_x_y_dim_name = {}
@@ -164,7 +167,7 @@ class HyperspectralTranslator(Translator):
                                                             self.y_len, len(spec_vals_i)),  # shape of Main dataset
                                                            'Raw_Data',  # Name of main dataset
                                                            'Spectrogram',  # Physical quantity contained in Main dataset
-                                                           'V',  # Units for the physical quantity
+                                                           descriptors[3],  # Units for the physical quantity
                                                            self.pos_dims,  # Position dimensions
                                                            spectrogram_spec_dims,  # Spectroscopic dimensions
                                                            dtype=np.float32,  # data type / precision
@@ -181,21 +184,49 @@ class HyperspectralTranslator(Translator):
                 h5_raw[:, :] = self.spectrograms[spectrogram_f].reshape(h5_raw.shape)
 
     def write_images(self):
-        #ref position indices and values from 1st spectrogram since all images share the same position indices/values
-        if bool(self.spectrogram_desc):
-            spectrogram_dset = USIDataset(self.h5_f['Measurement_000/Channel_000/Raw_Data'])
-            h5_pos_inds = spectrogram_dset.h5_pos_inds
-            h5_pos_vals = spectrogram_dset.h5_pos_vals
-            pos_dims = None
-            write_pos_vals = False
-        else:
-            h5_pos_inds = None
-            h5_pos_vals = None
-            pos_dims = self.pos_dims
-            write_pos_vals = True
         if bool(self.img_desc):
             for img_f, descriptors in self.img_desc.items():
-                img_spec_dims = usid.write_utils.Dimension('arb', 'a.u', 1)
+                #check for existing spectrogram or image and link position/spec inds/vals
+                #at most two channels worth of need to be checked
+                try:
+                    str_main = str(usid.hdf_utils.get_all_main(self.h5_f['Measurement_000/Channel_000']))
+                    i_beg = str_main.find('located at: \n\t') + 14
+                    i_end = str_main.find('\nData contains') - 1
+                    data_loc = str_main[i_beg:i_end]
+                    channel_data = USIDataset(self.h5_f[data_loc])
+                    h5_pos_inds = channel_data.h5_pos_inds
+                    h5_pos_vals = channel_data.h5_pos_vals
+                    pos_dims = None
+                    write_pos_vals = False
+                    if channel_data.spec_dim_sizes[0] == 1:
+                        h5_spec_inds = channel_data.h5_spec_inds
+                        h5_spec_vals = channel_data.h5_spec_vals
+                        spec_dims = None
+                    #if channel 000 is spectrogram, check next dataset
+                    elif channel_data.spec_dim_sizes[0] !=1:
+                        str_main = str(usid.hdf_utils.get_all_main(self.h5_f['Measurement_000/Channel_001']))
+                        i_beg = str_main.find('located at: \n\t') + 14
+                        i_end = str_main.find('\nData contains') - 1
+                        data_loc = str_main[i_beg:i_end]
+                        channel_data = USIDataset(self.h5_f[data_loc])
+                        #channel data is an image, & we link their spec inds/vals
+                        if channel_data.spec_dim_sizes[0] == 1:
+                            h5_spec_inds = channel_data.h5_spec_inds
+                            h5_spec_vals = channel_data.h5_spec_vals
+                            spec_dims = None
+
+                #in case where channel does not exist, we make new spec/pos inds/vals
+                except KeyError:
+                    #pos dims
+                    h5_pos_inds = None
+                    h5_pos_vals = None
+                    pos_dims = self.pos_dims
+                    write_pos_vals = True
+                    #spec dims
+                    h5_spec_inds = None
+                    h5_spec_vals = None
+                    spec_dims = usid.write_utils.Dimension('arb', 'a.u', 1)
+
                 channel_i = usid.hdf_utils.create_indexed_group(self.h5_meas_grp,'Channel_')
                 h5_raw = usid.hdf_utils.write_main_dataset(channel_i, #parent HDF5 group
                                                                (self.x_len * self.y_len, 1),  # shape of Main dataset
@@ -207,8 +238,11 @@ class HyperspectralTranslator(Translator):
                                                                h5_pos_inds=h5_pos_inds,
                                                                h5_pos_vals=h5_pos_vals,
                                                                # Position dimensions
-                                                               pos_dims=pos_dims, spec_dims=img_spec_dims,
+                                                               pos_dims=pos_dims,
                                                                # Spectroscopic dimensions
+                                                               h5_spec_inds=h5_spec_inds,
+                                                               h5_spec_vals=h5_spec_vals,
+                                                               spec_dims=spec_dims,
                                                                dtype=np.float32,  # data type / precision
                                                                main_dset_attrs={'Caption': descriptors[0],
                                                                                 'Scale': descriptors[1],
@@ -230,10 +264,10 @@ class HyperspectralTranslator(Translator):
                 spec_i_spec_dims = usid.write_utils.Dimension(x_name, x_unit, self.spectra_spec_vals[spec_f])
                 spec_i_pos_dims = [usid.write_utils.Dimension('X',
                                                               self.params_dictionary['XPhysUnit'].replace('\xb5','u'),
-                                                              descriptors[0]),
+                                                              float(descriptors[0])),
                                    usid.write_utils.Dimension('Y',
                                                               self.params_dictionary['YPhysUnit'].replace('\xb5','u'),
-                                                              descriptors[1])]
+                                                              float(descriptors[1]))]
                 #write data to a channel in the measurement group
                 spec_i_ch = usid.hdf_utils.create_indexed_group(self.h5_meas_grp, 'Channel_')
                 h5_raw = usid.hdf_utils.write_main_dataset(spec_i_ch,  # parent HDF5 group
