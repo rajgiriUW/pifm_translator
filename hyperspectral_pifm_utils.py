@@ -11,9 +11,9 @@ class PiFMTranslator(Translator):
     structure.
 
     """
-    def __init__(self, path=None, *args, **kwargs):
+    def __init__(self, path=None):
         self.path = path
-        super(HyperspectralTranslator, self).__init__(*args, **kwargs)
+#        super(HyperspectralTranslator, self).__init__(*args, **kwargs)
 
     def get_path(self):
         """writes full path, directory, and file name as attributes to class"""
@@ -41,6 +41,7 @@ class PiFMTranslator(Translator):
                     #in ANFATEC parameter files, all attributes are written before file references.
                     if sline[0].startswith('FileDesc'):
                         params = False
+            f.close()
         self.params_dictionary = params_dictionary
         self.x_len, self.y_len = int(params_dictionary['xPixel']), int(params_dictionary['yPixel'])
 
@@ -50,7 +51,7 @@ class PiFMTranslator(Translator):
         spectrogram_desc = {}
         img_desc = {}
         spectrum_desc = {}
-        with open(path,'r', encoding="ISO-8859-1") as f:
+        with open(self.path,'r', encoding="ISO-8859-1") as f:
             ## can be made more concise...by incorporating conditons with loop control
             lines = f.readlines()
             for index, line in enumerate(lines):
@@ -82,6 +83,7 @@ class PiFMTranslator(Translator):
                         file_desc.append(line_desc[1])
                     #file name, position x, position y
                     spectrum_desc[file_desc[0]] = file_desc[1:]
+            f.close()
         self.img_desc = img_desc
         self.spectrogram_desc = spectrogram_desc
         self.spectrum_desc = spectrum_desc
