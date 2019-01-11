@@ -6,7 +6,11 @@ from pyUSID.io import write_utils
 from pyUSID import USIDataset
 
 class PiFMTranslator(Translator):
-    """Writes images, spectrograms, point spectra and associated ancillary data sets to h5 file."""
+    """
+    Class that writes images, spectrograms, point spectra and associated ancillary data sets to h5 file in pyUSID data
+    structure.
+
+    """
     def __init__(self, path=None, *args, **kwargs):
         self.path = path
         super(HyperspectralTranslator, self).__init__(*args, **kwargs)
@@ -286,6 +290,10 @@ class PiFMTranslator(Translator):
                 h5_raw[:, :] = self.spectra[spec_f].reshape(h5_raw.shape)
 
     def translate(self):
+        """
+
+        :return: h5 file.
+        """
         self.get_path()
         self.read_anfatec_params()
         self.read_file_desc()
@@ -297,3 +305,4 @@ class PiFMTranslator(Translator):
         self.write_spectrograms()
         self.write_images()
         self.write_spectra()
+        return self.h5_f
